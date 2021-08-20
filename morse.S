@@ -5,20 +5,44 @@
 .type sysTick_IRQHandler,%function
 sysTick_IRQHandler:
   PUSH {lr}
-  
+  LDR r0,=ledOn
+  LDR r1,[r0]
+  CMP r1,#0
+  IT NE
+  BNE afterSwitchOnLed
+  MOV r1,#1
+  STR r1,[r0]
+  LDR r1,=STK_LOAD
+  LDR r2,=endOfCharFlag
+  CMP r2,#0
+  ITE EQ
+  LDREQ r0,=DOT_DELAY
+  LDRNE r0,=DASH_DELAY
+  STR r0,[r1]
+  BL switchOnLed
+  B afterSwitchOffLed
+afterSwitchOnLed:
+  MOV r1,#0
+  STR r1,[r0]
+  BL processCharacter
+  BL switchOffLed
+afterSwitchOffLed:  
   POP {pc}
 
 .type resetHandler, %function
 resetHandler:
   LDR  r0,=_estack
   MOV  sp,r0
+  LDR r0,=ledOn
+  MOV r1,#1
+  STR r1,[r0]
   BL setReadCharFlag
   BL initCharPtr
   BL createMorseArray
   BL enableApb2BusClock
   BL setupPa5Pin
-  //BL setupSysTick
-  BL processCharacter
+  BL setupSysTick
+  //BL processCharacter
 
 loop1:
   ADD r5,r5,#1
@@ -57,57 +81,70 @@ setupPa5Pin:
   STR r0,[r1]
   BX lr
 
-/*setupSysTick:
+setupSysTick:
   LDR r1,=STK_CTRL
   EOR r2,r2
   STR r2,[r1]
   LDR r1,=STK_LOAD
-  LDR r2,[r0]
-  STR r2,[r1]
+  LDR r0,=DOT_DELAY
+  STR r0,[r1]
   LDR r1,=STK_VAL
   EOR r2,r2
   STR r2,[r1]
   LDR r1,=STK_CTRL
   MOV r2,#7
   STR r2,[r1]
-  BX lr*/
+  BX lr
 
 processCharacter:
+  PUSH {lr}
   LDR r0,=readCharFlag
   LDR r0,[r0]
   CMP r0,#0
   IT NE
   BLNE setElemPtr
   BL processElem
-  LDR r0,=charPtr
-  LDR r1,[r0]
-  ADD r1,#1
-  STR r1,[r0]
-  BL setReadCharFlag
-  NOP
-  B processCharacter
-  
+  POP {pc}
+
 processElem:
+  PUSH {lr}
+  getElem:
   LDR r1,=elemPtr
   LDR r0,[r1]
   LDRB r3,[r0]
-  CMP r3,#0
-  ITTT NE
-  ADDNE r3,r0,#1
-  STRNE r3,[r1]
-  BNE processElem
-  BX lr
-  
+  CBNZ r3,blinkElem
+  LDR r0,=endOfCharFlag
+  MOV r1,#1
+  STR r1,[r0]
+  BL incrementCharPtr
+  BL setElemPtr
+  B getElem
+  blinkElem:
+  CMP r3,#0x2D
+  ITE EQ
+  LDREQ r0,=DASH_DELAY
+  LDRNE r0,=DOT_DELAY
+  LDR r1,=STK_LOAD
+  STR r0,[r1]
+  BL incrementElemPtr
+  POP {pc}
+
 setElemPtr:
   LDR r0,=readCharFlag
+  MOV r1,#0
+  STR r1,[r0]
+  LDR r0,=endOfCharFlag
   MOV r1,#0
   STR r1,[r0]
   LDR r0,=charPtr
   LDR r0,[r0]
   LDRB r0,[r0]
   CMP r0,#0
-  IT EQ
-  BEQ loop1
+  IT NE
+  BNE getLetter
+  BL switchOffLed
+  B loop1
+  getLetter:
   SUB r0,#0x41
   MOV r2,#4
   MUL r0,r2
@@ -118,6 +155,23 @@ setElemPtr:
   STR r1,[r2]
   BX lr
 
+incrementCharPtr:
+  LDR r0,=charPtr
+  LDR r1,[r0]
+  ADD r1,#1
+  STR r1,[r0]
+  LDR r0,=readCharFlag
+  MOV r1,#1
+  STR r1,[r0]
+  BX lr
+
+incrementElemPtr:
+  LDR r0,=elemPtr
+  LDR r1,[r0]
+  ADD r1,#1
+  STR r1,[r0]
+  BX lr
+
 switchOnLed:
   LDR r1,=GPIOA_BSRR
   LDR r2,[r1]
@@ -125,7 +179,6 @@ switchOnLed:
   LSL r0,r0,#5
   ORR r0,r0,r2
   STR r0,[r1]
-  MOV r4,#1
   BX lr
 
 switchOffLed:
@@ -135,7 +188,6 @@ switchOffLed:
   LSL r0,r0,#21
   ORR r0,r0,r2
   STR r0,[r1]
-  EOR r4,r4
   BX lr
   
 createMorseArray:

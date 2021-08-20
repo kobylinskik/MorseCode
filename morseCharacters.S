@@ -152,5 +152,6 @@ LETTER_ADDRESSES:
 
 ledOn: .word 0
 readCharFlag: .word 0
+endOfCharFlag: .word 0
 charPtr: .word 0
 elemPtr: .word 0
