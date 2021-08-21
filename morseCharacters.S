@@ -1,6 +1,6 @@
 .section .rodata,"a"
 
-TEXT_TO_READ: .asciz "TEST"
+TEXT_TO_READ: .asciz "TEST WORD"
 
 A: .asciz "*-"
 B: .asciz "-***"
@@ -43,7 +43,7 @@ Z: .asciz "--**"
 .equ CONTROL_DELAY,0xFFFFFF
 .equ DOT_DELAY,0x200000
 .equ DASH_DELAY,0x600000
-.equ WORD_DELAY,0xE00000
+.equ WORD_DELAY,0xA00000
 
 .global vtable
 .global resetHandler

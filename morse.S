@@ -13,20 +13,22 @@ sysTick_IRQHandler:
   MOV r1,#1
   STR r1,[r0]
   LDR r1,=STK_LOAD
-  LDR r2,=endOfCharFlag
-  CMP r2,#0
-  ITE EQ
-  LDREQ r0,=DOT_DELAY
-  LDRNE r0,=DASH_DELAY
+  LDR r0,=DOT_DELAY
   STR r0,[r1]
-  BL switchOnLed
-  B afterSwitchOffLed
+  LDR r2,=endOfCharFlag
+  LDR r1,[r2]
+  CMP r1,#0
+  IT EQ
+  BLEQ switchOnLed
+  LDR r2,=endOfCharFlag
+  MOV r1,#0
+  STR r1,[r2]
+  POP {pc}
 afterSwitchOnLed:
   MOV r1,#0
-  STR r1,[r0]
+  STR r1,[r0]  
   BL processCharacter
   BL switchOffLed
-afterSwitchOffLed:  
   POP {pc}
 
 .type resetHandler, %function
@@ -100,7 +102,7 @@ processCharacter:
   PUSH {lr}
   LDR r0,=readCharFlag
   LDR r0,[r0]
-  CMP r0,#0
+  CMP r0,#0  
   IT NE
   BLNE setElemPtr
   BL processElem
@@ -113,12 +115,17 @@ processElem:
   LDR r0,[r1]
   LDRB r3,[r0]
   CBNZ r3,blinkElem
-  LDR r0,=endOfCharFlag
+  LDR r0,=endOfCharFlag  
   MOV r1,#1
   STR r1,[r0]
   BL incrementCharPtr
-  BL setElemPtr
-  B getElem
+  LDR r0,=readCharFlag
+  MOV r1,#1
+  STR r1,[r0]
+  LDR r0,=DOT_DELAY
+  LDR r1,=STK_LOAD
+  STR r0,[r1]
+  POP {pc}
   blinkElem:
   CMP r3,#0x2D
   ITE EQ
@@ -130,20 +137,31 @@ processElem:
   POP {pc}
 
 setElemPtr:
+  PUSH {lr}
   LDR r0,=readCharFlag
   MOV r1,#0
-  STR r1,[r0]
-  LDR r0,=endOfCharFlag
-  MOV r1,#0
-  STR r1,[r0]
+  STR r1,[r0]  
   LDR r0,=charPtr
   LDR r0,[r0]
   LDRB r0,[r0]
   CMP r0,#0
   IT NE
-  BNE getLetter
+  BNE getChar
   BL switchOffLed
   B loop1
+  getChar:
+  CMP r0,0x20
+  BNE getLetter
+  LDR r0,=endOfCharFlag
+  MOV r1,#1
+  STR r1,[r0]
+  LDR r0,=readCharFlag
+  MOV r1,#1
+  STR r1,[r0]
+  LDR r0,=WORD_DELAY
+  LDR r1,=STK_LOAD
+  STR r0,[r1]
+  POP {pc}
   getLetter:
   SUB r0,#0x41
   MOV r2,#4
@@ -153,7 +171,7 @@ setElemPtr:
   LDR r1,[r1]
   LDR r2,=elemPtr  
   STR r1,[r2]
-  BX lr
+  POP {pc}
 
 incrementCharPtr:
   LDR r0,=charPtr
