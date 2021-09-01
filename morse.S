@@ -1,297 +1,159 @@
 .include "vtable.S"
 .include "constants.S"
 .include "variables.S"
+.include "setupHardware.S"
 
-.syntax unified
-.section .text
 .type sysTick_IRQHandler,%function
-sysTick_IRQHandler:
+
+//Systick handler must be much shorter, perhaps just set one flag to jump out of while(1)  into some sort of LED handler
+sysTick_IRQHandler:  
   PUSH {lr}
-  LDR r0,=ledOn //Load LED status and check if it's on
-  LDR r1,[r0]
-  CMP r1,#0
-  IT NE
-  BNE afterSwitchOnLed
-  MOV r1,#1 //If it's 0, set Led Status to 1
-  STR r1,[r0]
-  LDR r1,=STK_LOAD //Load Delay value to one dot into STK_LOAD - the length of the break between elements
-  LDR r0,=DOT_DELAY
-  STR r0,[r1]
-  LDR r2,=endOfCharFlag //Check if last element was the last one in a character
-  LDR r1,[r2]
-  CMP r1,#0
-  IT EQ
-  BLEQ switchOnLed //If it wasn't, swith on LED, otherwise there will be a longer break
-  LDR r2,=endOfCharFlag  //set endOfCharFlag to false - next time we'll switch on LED
-  MOV r1,#0
-  STR r1,[r2]
-  POP {pc}
-afterSwitchOnLed:
-  MOV r1,#0 //If LED is on, we'll process the character to set the delay length and switch the LED off
-  STR r1,[r0]  
-  BL processCharacter
-  BL switchOffLed
+  MOV r4,#1
   POP {pc}
 
 .type resetHandler, %function
 resetHandler:
   LDR  r0,=_estack
-  MOV  sp,r0
-  LDR r0,=ledOn
-  MOV r1,#1
-  STR r1,[r0]
-  BL setReadCharFlag
-  BL initCharPtr
+  MOV  sp,r0  
   BL createMorseArray
+  BL initCharPtr
+  BL setElemPtr
   BL enableApb2BusClock
   BL setupPa5Pin
   BL setupSysTick
+  EOR r3,r3 //We'll use r3 as a flag that we are in an inter-element break
 
-loop1:
-  ADD r5,r5,#1
+setLedStatusAndNextDelay:
+  EOR r4,r4 //We'll use r4 as a flag that the SysTick interrupt has happened
+  CMP r3,#0 //if r3 is 0,we'll switch off LED and set next character length
+  IT EQ
+  BLEQ handleBreak
+  CMP r1,#0
+  IT NE
+  BLNE switchOnLed
+  LDR r0,=DOT_DELAY
+  BL setNextElemLength
+  EOR r3,r3
+  B loop1
+  handleBreak:
+  BL switchOffLed
+  BL processElem
+  CMP r1,#0
+  IT EQ
+  BLEQ processCharacter
+  BL setNextElemLength
+  MOV r3,#1
   B loop1
 
-enableApb2BusClock:
-  LDR r1,=RCC_APB2ENR
-  LDR r2,[r1]
-  MOV r0,#1
-  LSL r0,#2
-  ORR r0,r0,r2
-  STR r0,[r1]
-  BX lr
+loop1:
+  CMP r4,#0 
+  IT NE
+  BLNE setLedStatusAndNextDelay //If the interrupt has occured, we'll handle LED status change and process characters
+  B loop1
 
-//Set a flag which tells the prorgam to read next character
-setReadCharFlag:
-  LDR r0,=readCharFlag
-  MOV r1,#1
-  STR r1,[r0]
-  BX lr
+infiniteLoop:
+  B infiniteLoop
 
-//Initialize pointer to the first character of the text to blink
+//Initialize pointer to the first character of the text to blink. r0 -> returns charPtr
 initCharPtr:
   LDR r0,=charPtr
   LDR r1,=TEXT_TO_READ
   STR r1,[r0]
   BX lr
 
-//Set PA5 pin to Output mode
-setupPa5Pin:
-  LDR r1,=GPIOA_CRL
-  LDR r2,[r1]
-  MOV r0,#1
-  LSL r0,#20
-  ORR r0,r0,r2
-  MOV r2,#1
-  LSL r2,#22
-  EOR r0,r0,r2
-  STR r0,[r1]
-  BX lr
-
-setupSysTick:
-  LDR r1,=STK_CTRL
-  EOR r2,r2
-  STR r2,[r1]
-  LDR r1,=STK_LOAD
-  LDR r0,=DOT_DELAY
-  STR r0,[r1]
-  LDR r1,=STK_VAL
-  EOR r2,r2
-  STR r2,[r1]
-  LDR r1,=STK_CTRL
-  MOV r2,#7
-  STR r2,[r1]
-  BX lr
-
 processCharacter:
   PUSH {lr}
-  LDR r0,=readCharFlag //If readCharFlag is true, we are setting element pointer to the first element of the current character
-  LDR r0,[r0]
-  CMP r0,#0  
-  IT NE
-  BLNE setElemPtr
-  BL processElem
+  LDR r5,=charPtr
+  LDR r6,[r5]
+  LDRB r6,[r6]
+  CMP r6,#0x20//Space - word break
+  IT EQ
+  BEQ handleSpace  
+  CMP r6,#0
+  IT EQ
+  BEQ infiniteLoop
+  POP {pc}
+  handleSpace:
+  BL incrementCharPtr
+  BL setElemPtr
+  LDR r0,=WORD_DELAY
   POP {pc}
 
-//This is some serious mess to refactor
+//r0 -> returns elem length, r1 -> if 0, it's the end of the character
 processElem:
   PUSH {lr}
-  getElem:
-  LDR r1,=elemPtr
-  LDR r0,[r1]
-  LDRB r3,[r0]
-  CBNZ r3,blinkElem
-  LDR r0,=endOfCharFlag  
-  MOV r1,#1
-  STR r1,[r0]
-  BL incrementCharPtr
-  LDR r0,=readCharFlag
-  MOV r1,#1
-  STR r1,[r0]
+  LDR r5,=elemPtr
+  LDR r6,[r5]
+  LDRB r7,[r6]
+  CBNZ r7,setElemData
   LDR r0,=DOT_DELAY
-  LDR r1,=STK_LOAD
-  STR r0,[r1]
+  MOV r1,#0 //r1 -> switch on LED flag
+  PUSH {r0}
+  BL incrementCharPtr //end of String -> get another character
+  BL setElemPtr //set element pointer to the beginning of the character
+  POP {r0}
   POP {pc}
-  blinkElem:
-  CMP r3,#0x2D
+setElemData:
+  CMP r7,#0x2D
   ITE EQ
-  LDREQ r0,=DASH_DELAY
+  LDREQ r0,=DASH_DELAY //r0 -> element length
   LDRNE r0,=DOT_DELAY
-  LDR r1,=STK_LOAD
-  STR r0,[r1]
+  MOV r1,#1 //r1 -> switch on LED flag
   BL incrementElemPtr
   POP {pc}
 
-//This is a mess as well
-setElemPtr:
-  PUSH {lr}
-  LDR r0,=readCharFlag
-  MOV r1,#0
-  STR r1,[r0]  
-  LDR r0,=charPtr
-  LDR r0,[r0]
-  LDRB r0,[r0]
-  CMP r0,#0
-  IT NE
-  BNE getChar
-  BL switchOffLed
-  B loop1
-  getChar:
-  CMP r0,0x20
-  BNE getLetter
-  LDR r0,=endOfCharFlag
-  MOV r1,#1
-  STR r1,[r0]
-  LDR r0,=readCharFlag
-  MOV r1,#1
-  STR r1,[r0]
-  LDR r0,=WORD_DELAY
-  LDR r1,=STK_LOAD
-  STR r0,[r1]
-  POP {pc}
-  getLetter:
-  SUB r0,#0x41
-  MOV r2,#4
-  MUL r0,r2
-  LDR r1,=LETTER_ADDRESSES
-  ADD r1,r1,r0
-  LDR r1,[r1]
-  LDR r2,=elemPtr  
-  STR r1,[r2]
-  POP {pc}
+//r0 -> returns elem length
+setNextElemLength:
+  LDR r5,=STK_LOAD
+  STR r0,[r5]
+  BX lr
 
+setElemPtr:  
+  LDR r8,[r0]
+  LDRB r8,[r8]
+  CMP r8,0x20 //If the character under charPtr is space, we don't want to set elemPtr, as space has none
+  IT EQ
+  BXEQ lr
+  SUB r8,#0x41 //Subtract 0x41 to get the letter index
+  MOV r5,#4
+  MUL r6,r5,r8  //Multiply the index by 4 to get the offset
+  LDR r7,=LETTER_ADDRESSES
+  LDR r7,[r7,r6]
+  LDR r5,=elemPtr  
+  STR r7,[r5]
+  BX lr
+
+//r0 -> returns charPtr
 incrementCharPtr:
   LDR r0,=charPtr
-  LDR r1,[r0]
-  ADD r1,#1
-  STR r1,[r0]
-  LDR r0,=readCharFlag
-  MOV r1,#1
-  STR r1,[r0]
+  LDR r6,[r0]
+  ADD r6,#1
+  STR r6,[r0]
   BX lr
 
 incrementElemPtr:
-  LDR r0,=elemPtr
-  LDR r1,[r0]
-  ADD r1,#1
-  STR r1,[r0]
+  LDR r5,=elemPtr
+  LDR r6,[r5]
+  ADD r6,#1
+  STR r6,[r5]
   BX lr
 
 switchOnLed:
-  LDR r1,=GPIOA_BSRR
-  LDR r2,[r1]
-  MOV r0,#1
-  LSL r0,r0,#5
-  ORR r0,r0,r2
-  STR r0,[r1]
+  LDR r5,=GPIOA_BSRR
+  LDR r6,[r5]
+  MOV r7,#1
+  LSL r7,r7,#5
+  ORR r7,r7,r6
+  STR r7,[r5]
   BX lr
 
 switchOffLed:
-  LDR r1,=GPIOA_BSRR
-  LDR r2,[r1]
-  MOV r0,#1
-  LSL r0,r0,#21
-  ORR r0,r0,r2
-  STR r0,[r1]
+  LDR r5,=GPIOA_BSRR
+  LDR r6,[r5]
+  MOV r7,#1
+  LSL r7,r7,#21
+  ORR r7,r7,r6
+  STR r7,[r5]
   BX lr
   
-createMorseArray:
-  LDR r0,=LETTER_ADDRESSES  
-  LDR r1,=A
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=B
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=C
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=D
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=E
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=F
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=G
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=H
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=I
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=J
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=K
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=L
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=M
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=N
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=O
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=P
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=Q
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=R
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=S
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=T
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=U
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=V
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=W
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=X
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=Y
-  STR r1,[r0]
-  ADD r0,#4
-  LDR r1,=Z
-  STR r1,[r0]
-  ADD r0,#4
-  BX lr
+
