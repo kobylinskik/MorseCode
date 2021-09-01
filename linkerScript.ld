@@ -10,14 +10,12 @@ MEMORY
 
 SECTIONS
 {
-  /* The vector table goes at the start of flash. */
   .vector_table :
   {
     . = ALIGN(4);
     KEEP (*(.vector_table))
     . = ALIGN(4);
   } >FLASH
-  /* The 'text' section contains the main program code. */
   .text :
   {
     . = ALIGN(4);
@@ -25,8 +23,6 @@ SECTIONS
     *(.text*)
     . = ALIGN(4);
   } >FLASH
-  /* The 'rodata' section contains read-only data,
-   * constants, strings, information that won't change. */
   .rodata :
   {
     . = ALIGN(4);
@@ -34,8 +30,6 @@ SECTIONS
     *(.rodata*)
     . = ALIGN(4);
   } >FLASH
-  /* The 'data' section is space set aside in RAM for
-   * things like variables, which can change. */
   _sidata = .;
   .data : AT(_sidata)
   {
@@ -47,13 +41,9 @@ SECTIONS
     _edata = .;
     . = ALIGN(4);
   } >RAM
-  /* The 'bss' section is similar to the 'data' section,
-   * but its space is initialized to all 0s at the
-   * start of the program. */
   .bss :
   {
     . = ALIGN(4);
-    /* Also mark the start/end of the BSS section. */
     _sbss = .;
     *(.bss)
     *(.bss*)
